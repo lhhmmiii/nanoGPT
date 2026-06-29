@@ -1,7 +1,7 @@
 import math
-import inspect
 from dataclasses import dataclass
 
+import tiktoken
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -10,7 +10,7 @@ from torch.nn import functional as F
 @dataclass
 class GPTConfig:
     block_size: int = 1024
-    vocab_size: int = 50304
+    vocab_size: int = 50257
     n_layer: int = 12
     n_head: int = 12
     n_embd: int = 768
@@ -182,9 +182,41 @@ class GPT2(nn.Module):
             loss = None
 
         return logits, loss
+
+    @torch.no_grad()
+    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None):
+        """
+        Take a conditioning sequence of indices idx (LongTensor of shape (b,t)) and complete
+        the sequence max_new_tokens times, feeding the predictions back into the model each time.
+        Most likely you'll want to make sure to be in model.eval() mode of operation for this.
+        """
+        for _ in range(max_new_tokens):
+            idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
+            logits, _ = self(idx_cond)
+            # Scale by desired temperature
+            logits = logits[:, -1, :] / temperature
+            # optionally crop the logits to only the top k options
+            if top_k is not None:
+                v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+                logits[logits < v[:, [-1]]] = -float('Inf')
+            # apply softmax to convert logits to (normalized) probabilities
+            probs = F.softmax(logits, dim=-1)
+            # sample from the distribution
+            idx_next = torch.multinomial(probs, num_samples=1)
+            idx = torch.cat((idx, idx_next), dim=1)
+
+        return idx
     
 if __name__ == '__main__':
     # Example usage
     config = GPTConfig()
     model = GPT2(config)
-    print(model)
+    sample_test = "Hi, how are you?"
+    tokenizer = tiktoken.get_encoding("gpt2")
+    input_ids = tokenizer.encode(sample_test)
+    input_tensor = torch.tensor(input_ids, dtype=torch.long).unsqueeze(0)
+    output = model.generate(input_tensor, max_new_tokens=10)
+    tokenized_output = tokenizer.decode(output.squeeze().tolist())
+    print(f"Input: {sample_test}")
+    print(f"Output: {tokenized_output}")
+    
