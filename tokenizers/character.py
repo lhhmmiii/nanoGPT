@@ -1,6 +1,6 @@
 import json
 
-from base import BaseTokenizer
+from .base import BaseTokenizer
 
 class CharacterTokenizer(BaseTokenizer):
     def __init__(self):
