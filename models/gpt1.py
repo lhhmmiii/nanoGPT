@@ -8,19 +8,18 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, RandomSampler
 
 from dataset import TextDataset
-from generate import generate_text
 from train import train_model
 from tokenizers.character import CharacterTokenizer
 
 # Hyperparameters
-embedding_dim = 384
-batch_size = 32
-learning_rate = 3e-4
-num_epochs = 20
-block_size = 16
-batch_size = 32
-num_heads = 8
-decoder_layers = 6
+embedding_dim = 768
+block_size = 512
+num_heads = 12 
+decoder_layers = 12
+
+learning_rate = 2.5e-4
+batch_size = 64
+num_epochs = 100 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
@@ -49,6 +48,35 @@ class GPT1(nn.Module):
             x = block(x)
         x = self.linear(x)  # (B, T, vocab_size)
         return x
+    
+    def generate(self, tokenizer, prompt, block_size, max_length=100):
+        """
+        Generate text using the GPT-1 model.
+        
+        Args:
+            tokenizer (CharacterTokenizer): Tokenizer for encoding and decoding text.
+            prompt (str): Input prompt for text generation.
+            block_size (int): Maximum sequence length for the model.
+            max_length (int): Maximum length of the generated text.
+        
+        Returns:
+            str: Generated text.
+        """
+        self.eval()
+        with torch.no_grad():
+            input_ids = tokenizer.encode(prompt)
+            input_ids = input_ids[-block_size:]  # Truncate to block size
+            input_tensor = torch.tensor(input_ids, dtype=torch.long, device=device).unsqueeze(0)  # (1, T)
+            
+            for _ in range(max_length):
+                logits = self.forward(input_tensor)  # (1, T, vocab_size)
+                next_token_logits = logits[:, -1, :]  # (1, vocab_size)
+                next_token_id = torch.argmax(next_token_logits, dim=-1).item()  # Get the index of the highest logit
+                input_tensor = torch.cat([input_tensor, torch.tensor([[next_token_id]], device=device)], dim=1)  # Append to input
+                
+            generated_ids = input_tensor.squeeze(0).tolist()
+            generated_text = tokenizer.decode(generated_ids)
+            return generated_text 
 
 class DecoderBlock(nn.Module):
     def __init__(self, embedding_dim, num_heads, block_size):
@@ -130,7 +158,7 @@ class FeedForward(nn.Module):
         self.linear1 = nn.Linear(embedding_dim, hidden_dim)
         self.relu = nn.ReLU()
         self.linear2 = nn.Linear(hidden_dim, embedding_dim)
-        # self.dropout = nn.Dropout(0.2)
+        self.dropout = nn.Dropout(0.2)
 
     def forward(self, x):
         """
@@ -152,13 +180,12 @@ if __name__ == "__main__":
     vocab_size = len(tokenizer.char_to_index)
 
     # Load the text data
-    with open("data/wikitext-103/wiki.valid.tokens", "r") as f:
+    with open("data/wikitext-103/wiki.train.tokens", "r") as f:
         text = f.read()
 
     # Initialize the dataset and dataloader
-    dataset = TextDataset(text, block_size)
-    sampler = RandomSampler(dataset, replacement = True, num_samples = 10000)
-    train_loader = DataLoader(dataset, batch_size=batch_size, sampler=sampler)
+    dataset = TextDataset(text[:10000], block_size)
+    train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
     # Initialize the model
     model = GPT1(vocab_size, embedding_dim, num_heads, block_size, decoder_layers)
@@ -174,5 +201,5 @@ if __name__ == "__main__":
     
     # Generate text using the trained model
     prompt = "The quick brown fox"
-    generated_text = generate_text(model, tokenizer, prompt, block_size, max_length=100)
+    generated_text = model.generate(tokenizer, prompt, block_size, max_length=100)
     print(f"Generated text: {generated_text}")
