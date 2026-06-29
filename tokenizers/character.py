@@ -1,7 +1,8 @@
 import json
-import torch
 
-class CharacterTokenizer:
+from base import BaseTokenizer
+
+class CharacterTokenizer(BaseTokenizer):
     def __init__(self):
         self.char_to_index = {}
         self.index_to_char = {}
