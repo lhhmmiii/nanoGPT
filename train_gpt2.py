@@ -10,8 +10,8 @@ from dataset import TextDataset
 from models.gpt2 import GPT2, GPT2Config
 
 # I/O
-out_dir = 'out'
-tensorboard_dir = 'runs'
+out_dir = 'checkpoints/gpt2/scratch/run1'
+tensorboard_dir = 'runs/gpt2/run1'
 eval_interval = 2000
 log_interval = 1
 eval_iters = 200
@@ -21,8 +21,8 @@ init_from = 'scratch'  # 'scratch' or 'resume' or 'gpt2*'
 
 # data
 dataset = 'wikitext-103'
-gradient_accumulation_steps = 5 * 8  # used to simulate larger batch sizes
-batch_size = 12  # if gradient_accumulation_steps > 1, this is the micro-batch size
+gradient_accumulation_steps = 8
+batch_size = 16  # if gradient_accumulation_steps > 1, this is the micro-batch size
 block_size = 1024
 
 # model
@@ -172,7 +172,7 @@ def estimate_loss():
     model.train()
     return out
 
-def save_checkpoint(iter_num, best_val_loss):
+def save_checkpoint(iter_num, best_val_loss, path):
     raw_model = model._orig_mod if hasattr(model, '_orig_mod') else model
     checkpoint = {
         'model': raw_model.state_dict(),
@@ -181,12 +181,13 @@ def save_checkpoint(iter_num, best_val_loss):
         'iter_num': iter_num,
         'best_val_loss': best_val_loss,
     }
-    ckpt_path = os.path.join(out_dir, 'ckpt.pt')
-    torch.save(checkpoint, ckpt_path)
-    print(f"Saved checkpoint to {ckpt_path}")
+    torch.save(checkpoint, path)
+    print(f"Saved checkpoint to {path}")
 
 # ---------------------------------------------------------------------------
 # training loop
+ckpt_path = os.path.join(out_dir, 'ckpt.pt')
+best_path = os.path.join(out_dir, 'best.pt')
 
 print(f"Training on {device} | dtype={dtype} | steps={max_iters}")
 t0 = time.time()
@@ -205,7 +206,10 @@ while iter_num < max_iters:
         if losses['val'] < best_val_loss or always_save_checkpoint:
             best_val_loss = losses['val']
             if iter_num > 0:
-                save_checkpoint(iter_num, best_val_loss)
+                save_checkpoint(iter_num, best_val_loss, best_path)
+        
+        # Always save latest checkpoint
+        save_checkpoint(iter_num, best_val_loss, ckpt_path)
 
     if eval_only:
         break
