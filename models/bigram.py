@@ -1,23 +1,7 @@
-import os
-import sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 import torch
 import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import DataLoader
 
-from dataset import TextDataset
-from train import train_model
 from tokenizers.character import CharacterTokenizer
-
-# Hyperparameters
-embedding_dim = 128
-batch_size = 32
-learning_rate = 1e-3
-num_epochs = 10 
-block_size = 8 
-batch_size = 32
 
 class Bigram(nn.Module):
     def __init__(self, vocab_size, embedding_dim):
@@ -38,3 +22,20 @@ class Bigram(nn.Module):
         x = self.embedding(x) # (batch_size, sequence_length, embedding_dim)
         x = self.linear(x)    # (batch_size, sequence_length, vocab_size)
         return x
+
+if __name__ == "__main__":
+    # Example usage
+    tokenizer = CharacterTokenizer()
+    tokenizer.load_vocab("vocabs/char_vocab.json")
+    vocab_size = len(tokenizer.char_to_index)
+    embedding_dim = 128
+
+    model = Bigram(vocab_size, embedding_dim)
+    print(model)
+
+    # Example input tensor
+    text = "Hello, world!"
+    input_ids = tokenizer.encode(text)
+    input_tensor = torch.tensor(input_ids, dtype=torch.long).unsqueeze(0)
+    output = model(input_tensor)
+    print(tokenizer.decode(output.argmax(dim=-1).squeeze().tolist()))  # Decode the output to text
