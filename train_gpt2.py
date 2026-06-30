@@ -4,12 +4,14 @@ import time
 
 import torch
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 
 from dataset import TextDataset
 from models.gpt2 import GPT2, GPT2Config
 
 # I/O
 out_dir = 'out'
+tensorboard_dir = 'runs'
 eval_interval = 2000
 log_interval = 1
 eval_iters = 200
@@ -53,6 +55,7 @@ compile = True
 # setup
 os.makedirs(out_dir, exist_ok=True)
 torch.manual_seed(1337)
+writer = SummaryWriter(log_dir=tensorboard_dir)
 
 device_type = 'cuda' if 'cuda' in device else 'cpu'
 ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[dtype]
@@ -198,6 +201,7 @@ while iter_num < max_iters:
     if iter_num % eval_interval == 0:
         losses = estimate_loss()
         print(f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+        writer.add_scalars('loss', {'train': losses['train'], 'val': losses['val']}, iter_num)
         if losses['val'] < best_val_loss or always_save_checkpoint:
             best_val_loss = losses['val']
             if iter_num > 0:
@@ -226,5 +230,9 @@ while iter_num < max_iters:
     if iter_num % log_interval == 0:
         lossf = loss.item() * gradient_accumulation_steps
         print(f"iter {iter_num}: loss {lossf:.4f}, lr {lr:.2e}, time {(t1-t0)*1000:.1f}ms")
+        writer.add_scalar('train/loss', lossf, iter_num)
+        writer.add_scalar('train/lr', lr, iter_num)
     t0 = t1
     iter_num += 1
+
+writer.close()
