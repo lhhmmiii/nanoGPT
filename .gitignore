@@ -18,3 +18,5 @@ __pycache__/
 # Data
 data/
 vocabs/
+checkpoints/
+runs/
