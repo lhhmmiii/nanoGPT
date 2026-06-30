@@ -36,10 +36,10 @@ python prepare_data.py --input data/wikitext-103/wiki.train.tokens --output data
 3. Train a small experiment:
 
 ```
-python train_gpt2.py --config configs/small.json
+python train_gpt2.py
 ```
 
-Adjust training parameters in `train_gpt2.py` to run on GPU/CPU or change model size.
+Adjust training parameters and hyperparameters in `train_gpt2.py` to run on GPU/CPU or change model size.
 
 **Notes**
 - This project is primarily for learning and experimentation, not a production-ready implementation.
