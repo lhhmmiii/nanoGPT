@@ -1,7 +1,7 @@
 from collections import defaultdict
 import json
 
-from base import BaseTokenizer
+from .base import BaseTokenizer
 
 class BPETokenizer(BaseTokenizer):
     
