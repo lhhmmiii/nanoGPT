@@ -134,6 +134,41 @@ class GPT2(nn.Module):
 
         # report number of parameters
         print("number of parameters: %.2fM" % (self.get_num_params()/1e6,))
+
+    @classmethod
+    def load_checkpoint(cls, path, optimizer=None, map_location="cpu"):
+        """
+        Load training checkpoint and return model + training state.
+        """
+        checkpoint = torch.load(path, map_location=map_location)
+
+        # Rebuild model if model_args provided
+        model_args = checkpoint.get('model_args', None)
+        if model_args is None:
+            raise ValueError("model_args is required to rebuild the model")
+
+        if isinstance(model_args, GPT2Config):
+            config = model_args
+        elif isinstance(model_args, dict):
+            config = GPT2Config(**model_args)
+        else:
+            raise TypeError(f"Unsupported model_args type: {type(model_args).__name__}")
+
+        model = cls(config)
+
+        # Load model weights
+        raw_model = model._orig_mod if hasattr(model, '_orig_mod') else model
+        raw_model.load_state_dict(checkpoint['model'])
+
+        # Load optimizer if provided
+        if optimizer is not None and checkpoint.get('optimizer') is not None:
+            optimizer.load_state_dict(checkpoint['optimizer'])
+
+        iter_num = checkpoint.get('iter_num', 0)
+        best_val_loss = checkpoint.get('best_val_loss', float('inf'))
+
+        print(f"Loaded checkpoint from {path}")
+        return model, optimizer, iter_num, best_val_loss
     
     @classmethod
     def from_pretrained(cls, model_type, override_args=None):
@@ -265,8 +300,9 @@ class GPT2(nn.Module):
 if __name__ == '__main__':
     # Example usage
     config = GPT2Config()
-    model = GPT2.from_pretrained('gpt2')
-    sample_test = "Hi, how are you?"
+    # model = GPT2.from_pretrained('gpt2')
+    model = GPT2.load_checkpoint('checkpoints/gpt2/scratch/run1/best.pt', map_location='cpu')[0]
+    sample_test = "Homarus gammarus is a large crustacean , with a body length up to 60"
     tokenizer = tiktoken.get_encoding("gpt2")
     input_ids = tokenizer.encode(sample_test)
     input_tensor = torch.tensor(input_ids, dtype=torch.long).unsqueeze(0)
