@@ -1,33 +1,28 @@
+import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 
 from tokenizers.character import CharacterTokenizer
 
 class TextDataset(Dataset):
-    def __init__(self, text, block_size):
-        self.text = text
+    def __init__(self, bin_path, block_size):
         self.block_size = block_size
-        self.tokenizer = CharacterTokenizer()
-        self.tokenizer.load_vocab("vocabs/char_vocab.json")
-        self.tokens = torch.tensor(
-            self.tokenizer.encode(text),
-            dtype=torch.long
-        )
+        self.data = np.memmap(bin_path, dtype=np.uint16, mode="r")
 
     def __len__(self):
-        return len(self.text) - self.block_size 
+        return len(self.data) - self.block_size
 
-    def __getitem__(self, idx: int):
-        x = self.tokens[idx : idx + self.block_size]
-        y = self.tokens[idx + 1 : idx + 1 + self.block_size]
+    def __getitem__(self, idx):
+        x = torch.from_numpy(
+            self.data[idx:idx+self.block_size].astype(np.int64)
+        )
+        y = torch.from_numpy(
+            self.data[idx+1:idx+1+self.block_size].astype(np.int64)
+        )
         return x, y
 
 if __name__ == "__main__":
-    with open("data/wikitext-103/wiki.valid.tokens", "r") as f:
-        text = f.read()
-
-    # Initialize the dataset and dataloader
-    dataset = TextDataset(text, 8)
+    dataset = TextDataset("data/wikitext-103/train.bin", 8)
     train_loader = DataLoader(dataset, batch_size=4, shuffle=True)
     x, y = next(iter(train_loader))
     print(x)
