@@ -8,7 +8,7 @@ from torch.nn import functional as F
 
 
 @dataclass
-class GPTConfig:
+class GPT2Config:
     block_size: int = 1024
     vocab_size: int = 50257
     n_layer: int = 12
@@ -158,7 +158,7 @@ class GPT2(nn.Module):
             print(f"overriding dropout rate to {override_args['dropout']}")
             config_args['dropout'] = override_args['dropout']
         # create a from-scratch initialized minGPT model
-        config = GPTConfig(**config_args)
+        config = GPT2Config(**config_args)
         model = GPT2(config)
         sd = model.state_dict()
         sd_keys = sd.keys()
@@ -264,7 +264,7 @@ class GPT2(nn.Module):
     
 if __name__ == '__main__':
     # Example usage
-    config = GPTConfig()
+    config = GPT2Config()
     model = GPT2.from_pretrained('gpt2')
     sample_test = "Hi, how are you?"
     tokenizer = tiktoken.get_encoding("gpt2")
