@@ -14,7 +14,7 @@ from tokenizers.character import CharacterTokenizer
 # Hyperparameters
 embedding_dim = 768
 block_size = 512
-num_heads = 12 
+num_heads = 12
 decoder_layers = 12
 
 learning_rate = 2.5e-4
@@ -169,37 +169,3 @@ class FeedForward(nn.Module):
         x = self.dropout(x)
         x = self.linear2(x) # (B, T, embedding_dim)
         return x
-
-if __name__ == "__main__":
-    # Set random seed for reproducibility
-    torch.manual_seed(42)
-    
-    # Load and preprocess the dataset
-    tokenizer = CharacterTokenizer()
-    tokenizer.load_vocab("vocabs/char_vocab.json")
-    vocab_size = len(tokenizer.char_to_index)
-
-    # Load the text data
-    with open("data/wikitext-103/wiki.train.tokens", "r") as f:
-        text = f.read()
-
-    # Initialize the dataset and dataloader
-    dataset = TextDataset(text[:10000], block_size)
-    train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-
-    # Initialize the model
-    model = GPT1(vocab_size, embedding_dim, num_heads, block_size, decoder_layers)
-    model.to(device)
-    print(f"Number of parameters: {sum(p.numel() for p in model.parameters())}")
-    
-    # Initialize loss function and optimizer
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    
-    # Train the model
-    train_model(model, train_loader, criterion, optimizer, num_epochs, device)
-    
-    # Generate text using the trained model
-    prompt = "The quick brown fox"
-    generated_text = model.generate(tokenizer, prompt, block_size, max_length=100)
-    print(f"Generated text: {generated_text}")
