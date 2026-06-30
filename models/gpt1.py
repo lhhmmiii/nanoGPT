@@ -5,7 +5,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader, RandomSampler
+from torch.utils.data import DataLoader
 
 from dataset import TextDataset
 from train import train_model
