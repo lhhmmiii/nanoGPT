@@ -4,24 +4,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import torch
 import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import DataLoader
-
-from dataset import TextDataset
-from train import train_model
-from tokenizers.character import CharacterTokenizer
-
-# Hyperparameters
-embedding_dim = 768
-block_size = 512
-num_heads = 12
-decoder_layers = 12
-
-learning_rate = 2.5e-4
-batch_size = 64
-num_epochs = 100 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+from tokenizers.bpe import BPETokenizer 
 
 class GPT1(nn.Module):
     def __init__(self, vocab_size, embedding_dim, num_heads, block_size, decoder_layers):
@@ -66,13 +49,14 @@ class GPT1(nn.Module):
         with torch.no_grad():
             input_ids = tokenizer.encode(prompt)
             input_ids = input_ids[-block_size:]  # Truncate to block size
-            input_tensor = torch.tensor(input_ids, dtype=torch.long, device=device).unsqueeze(0)  # (1, T)
+            input_tensor = torch.tensor(input_ids, dtype=torch.long).unsqueeze(0)  # (1, T)
             
             for _ in range(max_length):
-                logits = self.forward(input_tensor)  # (1, T, vocab_size)
-                next_token_logits = logits[:, -1, :]  # (1, vocab_size)
-                next_token_id = torch.argmax(next_token_logits, dim=-1).item()  # Get the index of the highest logit
-                input_tensor = torch.cat([input_tensor, torch.tensor([[next_token_id]], device=device)], dim=1)  # Append to input
+                idx_cond = input_tensor[:, -block_size:]
+                logits = self.forward(idx_cond)
+                next_token_logits = logits[:, -1, :]
+                next_token_id = torch.argmax(next_token_logits, dim=-1, keepdim=True)
+                input_tensor = torch.cat([input_tensor, next_token_id], dim=1)
                 
             generated_ids = input_tensor.squeeze(0).tolist()
             generated_text = tokenizer.decode(generated_ids)
@@ -169,3 +153,20 @@ class FeedForward(nn.Module):
         x = self.dropout(x)
         x = self.linear2(x) # (B, T, embedding_dim)
         return x
+
+if __name__ == "__main__":
+    # Example usage
+    tokenizer = BPETokenizer()
+    tokenizer.load_vocab("vocabs/bpe_vocab.json")
+    vocab_size = len(tokenizer.vocab)
+    
+    embedding_dim = 384
+    num_heads = 6
+    block_size = 8 
+    decoder_layers = 6
+    
+    model = GPT1(vocab_size, embedding_dim, num_heads, block_size, decoder_layers)
+    
+    test_prompt = "Once upon a time"
+    generated_text = model.generate(tokenizer, test_prompt, block_size, max_length=50)
+    print("Generated Text:", generated_text)
