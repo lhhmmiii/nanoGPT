@@ -24,6 +24,21 @@ This experiment highlights:
 
 To improve inference latency, I implemented Key-Value (KV) caching for autoregressive token generation. By caching keys and values from previous tokens in the `CausalSelfAttention` layers, we avoid redundant calculations for past tokens. In subsequent generation steps, we feed only the newly generated token into the model instead of the entire context window.
 
+### Why cache K and V — but not Q?
+ 
+A natural question when implementing KV cache: why do we only store Key and Value tensors, and not Query?
+ 
+Suppose Q and K both have shape `(seq_len, embed_size)`, e.g. `(3, 5)`. The attention score is computed as `Q · K^T`.
+ 
+![Why cache K and V, not Q](assests/kv_cache_explainer.png)
+ 
+Consider the step where we generate the 3rd token(new token):
+- To compute the attention row for the new token (`A3`), we only need `Q3` multiplied against **all** of `K1^T, K2^T, K3^T`.
+- `Q1` and `Q2` were each used exactly once, at the steps where `A1` and `A2` were computed — they are never reused afterward.
+- In contrast, `K1, K2` (and `V1, V2`) get reused again and again at every subsequent generation step, since each new token's query must attend back over **all** past keys/values.
+
+**Takeaway:** since past Query vectors are never reused, there's no benefit to caching Q. But past Key and Value vectors are reused at every future step, so caching them eliminates redundant recomputation — this is exactly why it's called a "KV cache" and not a "QKV cache."
+
 ### Benchmark Results
 
 A generation latency benchmark was run on the CPU (prompt length of 32 tokens) comparing generation with and without the KV cache across different sequence lengths:
