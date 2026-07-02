@@ -2,7 +2,6 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 
-from tokenizers.character import CharacterTokenizer
 
 class TextDataset(Dataset):
     def __init__(self, bin_path, block_size):
