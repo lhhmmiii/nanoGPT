@@ -1,6 +1,8 @@
+import json
 import math
 import os
 import time
+from datetime import datetime
 
 import torch
 from torch.utils.data import DataLoader
@@ -10,14 +12,15 @@ from dataset import TextDataset
 from models.gpt2 import GPT2, GPT2Config
 
 # I/O
-out_dir = 'checkpoints/gpt2/scratch/run1'
-tensorboard_dir = 'runs/gpt2/run1'
+run_name = os.environ.get('RUN_NAME', datetime.now().strftime('%Y%m%d_%H%M%S'))
+out_dir = os.path.join('checkpoints', 'gpt2', run_name)
+tensorboard_dir = os.path.join('runs', 'gpt2', run_name)
 eval_interval = 2000
 log_interval = 1
 eval_iters = 200
 eval_only = False  # if True, script exits right after the first eval
 always_save_checkpoint = True  # if True, always save a checkpoint after each eval
-init_from = 'scratch'  # 'scratch' or 'resume' or 'gpt2*'
+init_from = 'gpt2'  # 'scratch' or 'resume' or 'gpt2*'
 
 # data
 dataset = 'wikitext-103'
@@ -29,13 +32,13 @@ block_size = 1024
 n_layer = 12
 n_head = 12
 n_embd = 768
-dropout = 0.0  # for pretraining 0 is good, for finetuning try 0.1+
+dropout = 0.1  # for pretraining 0 is good, for finetuning try 0.1+
 bias = False  # do we use bias inside LayerNorm and Linear layers?
 
 # adamw optimizer
-learning_rate = 6e-4  # max learning rate
-max_iters = 600000  # total number of training iterations
-weight_decay = 1e-1
+learning_rate = 6e-5  # max learning rate
+max_iters = 50000  # total number of training iterations
+weight_decay = 1e-2
 beta1 = 0.9
 beta2 = 0.95
 grad_clip = 1.0  # clip gradients at this value, or disable if == 0.0
@@ -43,8 +46,8 @@ grad_clip = 1.0  # clip gradients at this value, or disable if == 0.0
 # learning rate decay settings
 decay_lr = True  # whether to decay the learning rate
 warmup_iters = 2000  # how many steps to warm up for
-lr_decay_iters = 600000
-min_lr = 6e-5
+lr_decay_iters = 50000
+min_lr = 5e-6
 
 # system
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -56,6 +59,32 @@ compile = True
 os.makedirs(out_dir, exist_ok=True)
 torch.manual_seed(1337)
 writer = SummaryWriter(log_dir=tensorboard_dir)
+
+hyperparams = {
+    'dataset': dataset,
+    'batch_size': batch_size,
+    'block_size': block_size,
+    'gradient_accumulation_steps': gradient_accumulation_steps,
+    'n_layer': n_layer,
+    'n_head': n_head,
+    'n_embd': n_embd,
+    'dropout': dropout,
+    'learning_rate': learning_rate,
+    'max_iters': max_iters,
+    'weight_decay': weight_decay,
+    'beta1': beta1,
+    'beta2': beta2,
+    'grad_clip': grad_clip,
+    'decay_lr': decay_lr,
+    'warmup_iters': warmup_iters,
+    'lr_decay_iters': lr_decay_iters,
+    'min_lr': min_lr,
+    'device': device,
+    'dtype': dtype,
+    'compile': compile,
+    'init_from': init_from,
+}
+writer.add_text('config/hparams', json.dumps(hyperparams, indent=2, sort_keys=True))
 
 device_type = 'cuda' if 'cuda' in device else 'cpu'
 ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[dtype]
