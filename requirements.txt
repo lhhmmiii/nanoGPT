@@ -5,6 +5,7 @@ torchvision
 torchaudio
 
 numpy
+matplotlib
 tiktoken
 transformers
 tensorboard
