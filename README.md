@@ -20,11 +20,25 @@ This experiment highlights:
 - a practical end-to-end workflow for adapting a pretrained model,
 - and a strong foundation for further experiments with domain-specific text generation.
 
+## Performance Optimization: KV Cache
+
+To improve inference latency, I implemented Key-Value (KV) caching for autoregressive token generation. By caching keys and values from previous tokens in the `CausalSelfAttention` layers, we avoid redundant calculations for past tokens. In subsequent generation steps, we feed only the newly generated token into the model instead of the entire context window.
+
+### Benchmark Results
+
+A generation latency benchmark was run on the CPU (prompt length of 32 tokens) comparing generation with and without the KV cache across different sequence lengths:
+
+![KV Cache Speedup](assests/kv_cache_benchmark.png)
+
+This benchmark demonstrates:
+- A significant reduction in generation time, scaling from a **2x speedup** for short sequences to over **5.7x speedup** for 256 tokens.
+- Constant time complexity per token for attention calculation with cache, compared to quadratic growth without cache.
+
 ## What is implemented
 
 - Custom tokenizers: character, word, and BPE-style tokenization logic.
 - GPT-1 implementation: attention, multi-head attention, decoder blocks, and the full model stack.
-- GPT-2 implementation: pre-norm architecture, fused QKV-style projection logic, and optimized batched attention.
+- GPT-2 implementation: pre-norm architecture, fused QKV-style projection logic, optimized batched attention, and **efficient Key-Value (KV) cache generation**.
 - Training utilities: data preparation, batching, training entrypoints, and checkpoint support.
 
 ## Repository structure
