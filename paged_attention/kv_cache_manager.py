@@ -1,45 +1,170 @@
+from dataclasses import dataclass
+from typing import Dict, Optional, Union
 
-
+@dataclass
 class KVCacheBlock:
     block_id: int
     block_hash: bytes = b''
     ref_cnt: int = 0
-
-    def __init__(self, block_id: int, block_hash: bytes = b''):
-        self.block_id = block_id
-        self.block_hash = block_hash
+    prev_free_block: Optional["KVCacheBlock"] = None
+    next_free_block: Optional["KVCacheBlock"] = None
 
     @property
-    def is_free(self):
+    def is_free(self) -> bool:
+        """Returns True if the block is free (reference count is 0)."""
         return self.ref_cnt == 0
+
 
 class KVCacheManager:
     def __init__(self, num_blocks: int):
-        self.blocks = [
-            KVCacheBlock(i) for i in range(num_blocks)
-        ]
-        self.num_allocated_blocks = 0
-    
-    def allocate_block(self, block_hash: bytes):
-        if self.num_allocated_blocks == len(self.blocks):
-            raise Exception("No free blocks available")
+        self.num_blocks = num_blocks
+        self.blocks = [KVCacheBlock(i) for i in range(num_blocks)]
         
-        block = self.blocks[self.num_allocated_blocks]
-        block.block_hash = block_hash
+        self.free_head: Optional[KVCacheBlock] = self.blocks[0]
+        self.free_tail: Optional[KVCacheBlock] = self.blocks[-1]
+        
+        for i in range(num_blocks):
+            if i > 0:
+                self.blocks[i].prev_free_block = self.blocks[i - 1]
+            if i < num_blocks - 1:
+                self.blocks[i].next_free_block = self.blocks[i + 1]
+                
+        self.free_count = num_blocks
+        
+        # Hash to block mapping for prefix caching
+        self.cached_blocks: Dict[bytes, KVCacheBlock] = {}
+
+    @property
+    def num_free_blocks(self) -> int:
+        """Returns the number of free blocks in the manager."""
+        return self.free_count
+
+    @property
+    def num_allocated_blocks(self) -> int:
+        """Returns the number of allocated blocks (reference count > 0)."""
+        return self.num_blocks - self.free_count
+
+    def _remove_from_free_list(self, block: KVCacheBlock) -> None:
+        """
+        Removes a block from the doubly linked free list.
+        """
+        if block.prev_free_block is not None:
+            block.prev_free_block.next_free_block = block.next_free_block
+        else:
+            self.free_head = block.next_free_block
+
+        if block.next_free_block is not None:
+            block.next_free_block.prev_free_block = block.prev_free_block
+        else:
+            self.free_tail = block.prev_free_block
+
+        block.prev_free_block = None
+        block.next_free_block = None
+        self.free_count -= 1
+
+    def _append_to_free_list(self, block: KVCacheBlock) -> None:
+        """
+        Appends a block to the tail of the doubly linked free list.
+        """
+        block.next_free_block = None
+        block.prev_free_block = self.free_tail
+
+        if self.free_tail is not None:
+            self.free_tail.next_free_block = block
+        else:
+            self.free_head = block
+
+        self.free_tail = block
+        self.free_count += 1
+
+    def get_block(self, block_id: int) -> KVCacheBlock:
+        """
+        Retrieves a block by its ID.
+        """
+        if not (0 <= block_id < self.num_blocks):
+            raise ValueError(f"Invalid block_id: {block_id}. Must be between 0 and {self.num_blocks - 1}.")
+        return self.blocks[block_id]
+
+    def allocate(self, block_hash: Optional[bytes] = None) -> KVCacheBlock:
+        """
+        Allocates a physical block.
+        """
+        # Case 1: Cache hit
+        if block_hash is not None and block_hash in self.cached_blocks:
+            block = self.cached_blocks[block_hash]
+            if block.is_free:
+                self._remove_from_free_list(block)
+            block.ref_cnt += 1
+            return block
+
+        # Case 2: Cache miss, allocate from the free list (evicts LRU block if cached)
+        if self.free_head is None:
+            raise MemoryError("No free blocks available in KV cache")
+
+        block = self.free_head
+        self._remove_from_free_list(block)
+
+        # Evict old cache entry if it exists
+        if block.block_hash:
+            self.cached_blocks.pop(block.block_hash, None)
+
+        # Update block metadata
+        block.block_hash = block_hash if block_hash is not None else b''
         block.ref_cnt = 1
-        self.num_allocated_blocks += 1
-        return block.block_id
-    
-    def free(self, block_id: int):
+
+        # Register new cache entry
+        if block_hash is not None:
+            self.cached_blocks[block_hash] = block
+
+        return block
+
+    def free(self, block_id: int) -> None:
         """
-        Free the block by block id
+        Decrements the reference count of a block.
+        If the reference count reaches 0, the block is appended to the tail of the free list.
+        
+        Args:
+            block_id: The ID of the block to free.
+            
+        Raises:
+            ValueError: If the block ID is invalid or the block is already free.
         """
-        self.blocks[block_id].ref_cnt = 0
-        self.blocks[block_id].block_hash = b''
-        self.num_allocated_blocks -= 1
+        if not (0 <= block_id < self.num_blocks):
+            raise ValueError(f"Invalid block_id: {block_id}. Must be between 0 and {self.num_blocks - 1}.")
+
+        block = self.blocks[block_id]
+        if block.is_free:
+            raise ValueError(f"Double free error: Block {block_id} is already free.")
+
+        block.ref_cnt -= 1
+        if block.ref_cnt == 0:
+            self._append_to_free_list(block)
+
+    def hash_block(self, block_id: int, block_hash: bytes) -> None:
+        """
+        Associates a hash signature with an already allocated block.
+        This enables prefix cache lookup and reuse for this block in the future.
+        """
+        if not (0 <= block_id < self.num_blocks):
+            raise ValueError(f"Invalid block_id: {block_id}.")
+
+        block = self.blocks[block_id]
+        if block.is_free:
+            raise ValueError(f"Cannot set hash on free block {block_id}.")
+
+        if block.block_hash == block_hash:
+            return
+
+        if block_hash in self.cached_blocks:
+            raise ValueError(f"Hash {block_hash!r} is already mapped to block {self.cached_blocks[block_hash].block_id}.")
+
+        # Evict old hash if present
+        if block.block_hash:
+            self.cached_blocks.pop(block.block_hash, None)
+
+        block.block_hash = block_hash
+        self.cached_blocks[block_hash] = block
+
 
 if __name__ == "__main__":
-    pass 
-
-
-    
+    pass
