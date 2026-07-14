@@ -10,6 +10,7 @@ class LogicalBlock:
 
 class Request:
     request_id: str
+    request_content: str
     input_ids: list[int]
     generated_ids: list[int]
     logical_blocks: list[LogicalBlock]
