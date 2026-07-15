@@ -8,6 +8,7 @@ class LogicalBlock:
     block_hash: bytes | None = None
     physical_block: KVCacheBlock | None = None
 
+@dataclass
 class Request:
     request_id: str
     request_content: str
