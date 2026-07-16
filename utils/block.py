@@ -5,8 +5,6 @@ from typing import Optional
 from schemas import Request, LogicalBlock
 from paged_attention.kv_cache_manager import KVCacheManager
 
-KV_CACHE_BLOCK_SIZE = 8
-
 def compute_block_hash(
     prev_block_hash: Optional[bytes],
     token_ids: list[int],
@@ -31,34 +29,39 @@ def compute_block_hash(
 
     return h.digest()
 
-def build_logical_blocks(request: Request, kv_cache_manager: KVCacheManager) -> Request:
-    """
-    Build logical blocks for a request.
 
-    Args:
-        request: Request need to build logical blocks
-        kv_cache_manager: KV cache manager.
-    
-    Returns:
-        Request with logical blocks.
+def build_logical_blocks(request: Request, kv_cache_block_size: int = 8) -> Request:
+    """
+    Build the logical block structure and compute hashes only for full blocks.
+
+    Physical block allocation is intentionally deferred and handled later by
+    the Scheduler.
     """
     input_ids = request.input_ids
-    num_blocks = math.ceil(len(input_ids) / KV_CACHE_BLOCK_SIZE)
+    needed_num_blocks = math.ceil(len(input_ids) / kv_cache_block_size)
+
     logical_blocks = []
     prev_block_hash = None
-    for i in range(num_blocks):
-        token_ids = input_ids[i*KV_CACHE_BLOCK_SIZE:(i+1)*KV_CACHE_BLOCK_SIZE]
-        block_hash = compute_block_hash(prev_block_hash, token_ids)
-        physical_block = kv_cache_manager.allocate(block_hash)
-        kv_cache_manager.hash_block(physical_block.block_id, block_hash)
+
+    for i in range(needed_num_blocks):
+        token_ids = input_ids[i * kv_cache_block_size:(i + 1) * kv_cache_block_size]
+        is_full = len(token_ids) == kv_cache_block_size
+
+        # Compute a hash only for full blocks so they can participate
+        # in prefix caching.
+        if is_full:
+            block_hash = compute_block_hash(prev_block_hash, token_ids)
+            prev_block_hash = block_hash
+        else:
+            block_hash = None
+
         logical_block = LogicalBlock(
             block_idx=i,
             token_ids=token_ids,
             block_hash=block_hash,
-            physical_block=physical_block
+            physical_block=None
         )
         logical_blocks.append(logical_block)
-        prev_block_hash = block_hash
 
     request.logical_blocks = logical_blocks
     return request
