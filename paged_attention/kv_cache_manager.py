@@ -57,7 +57,26 @@ class KVCacheManager:
             request: Request need to allocate KV cache blocks.
         """
         for logical_block in request.logical_blocks:
+            if logical_block.physical_block is not None:
+                continue  # already allocated, skip
             logical_block.physical_block = self._allocate_block(logical_block.block_hash)
+
+    def allocate_last_block(self, request: Request) -> None:
+        """
+        Allocate a physical block for the last logical block if it does not
+        have one yet.
+
+        Called during the decode phase after `append_decode_token` creates a
+        new partial logical block with no physical block assigned.
+
+        Args:
+            request: Request whose last logical block needs a physical block.
+        """
+        if not request.logical_blocks:
+            return
+        last_block = request.logical_blocks[-1]
+        if last_block.physical_block is None:
+            last_block.physical_block = self._allocate_block(last_block.block_hash)
 
     def free(self, request: Request):
         """
