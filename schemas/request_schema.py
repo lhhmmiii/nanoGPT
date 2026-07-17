@@ -14,4 +14,5 @@ class Request:
     input_ids: list[int]
     generated_ids: list[int] = field(default_factory=list)
     logical_blocks: list[LogicalBlock] = field(default_factory=list)
-    finished: bool = False
+    num_computed_tokens: int = 0
+    
