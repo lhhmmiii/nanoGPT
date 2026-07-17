@@ -10,7 +10,7 @@ A hands-on implementation of GPT-style models from first principles, designed fo
 - **Custom Tokenizers**: Developed from-scratch tokenization strategies, including character-level and Byte Pair Encoding (BPE) systems.
 - **End-to-End Pipeline**: Created robust pipelines for data preparation, dataset class mapping, training loops, tensorboard logging, and checkpoints.
 - **KV Cache Optimizations**: Implemented KV cache management inside attention layers to significantly speed up autoregressive decoding.
-- **Paged Attention**: Added a memory management layer that partitions the KV cache into fixed-size blocks using a block allocator, minimizing fragmentation.
+- **Paged Attention**: Added a memory management layer that partitions the KV cache into fixed-size blocks using a block allocator with prefix caching, minimizing fragmentation and enabling cache reuse across requests that share a prompt prefix.
 
 ---
 
@@ -23,6 +23,7 @@ A hands-on implementation of GPT-style models from first principles, designed fo
 ├── dataset.py                          # Custom PyTorch Dataset wrapping binary token files
 ├── train_gpt2.py                       # GPT-2 training and fine-tuning loop
 ├── benchmark_kv_cache.py               # KV cache benchmark and plotting utility
+├── benchmark_prefix_caching.py         # Prefix-caching memory savings benchmark for paged attention
 ├── assests/                            # Visual assets (loss curves, benchmarks, diagrams)
 ├── tokenization/                       # Custom tokenizer module
 │   ├── base.py                         # Abstract base class for tokenizers
@@ -34,10 +35,13 @@ A hands-on implementation of GPT-style models from first principles, designed fo
 │   ├── gpt2.py                         # GPT-2 architecture (pre-norm, with KV caching)
 │   └── gpt2_paged.py                   # Paged Attention variant of GPT-2
 ├── paged_attention/                    # Paged Attention memory subsystem
-│   ├── kv_cache_manager.py             # Physical block allocator & LRU manager
-│   └── paged_kv_cache.py               # Memory buffer read/write wrapper
-└── schemas/                            # Data transfer and structural models
-    └── request_schema.py               # Logical/Physical block and Request structures
+│   ├── kv_cache_manager.py             # Logical block allocator, LRU free list & prefix-cache hash map
+│   └── kv_cache_tensor.py              # Physical KV storage tensor (per-layer block read/write)
+├── schemas/                            # Data transfer and structural models
+│   └── request_schema.py               # Request and LogicalBlock dataclasses
+├── utils/                              # Shared helpers
+│   └── block.py                        # Block hashing, logical block construction (prefill/decode)
+└── tests/                              # Pytest unit tests for GPT-2 and the paged attention subsystem
 ```
 
 ---
@@ -104,24 +108,36 @@ Key observations:
 
 For longer sequences or concurrent requests, pre-allocating contiguous KV cache buffers leads to severe memory fragmentation (both internal and external) and over-allocation (reserving space for max sequence lengths).
 
-Inspired by virtual memory paging in operating systems, this project implements a clean Paged Attention framework under the [paged_attention](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/paged_attention) module to manage KV cache tensors non-contiguously.
+Inspired by virtual memory paging in operating systems, this project implements a Paged Attention framework under the [paged_attention](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/paged_attention) module to manage KV cache memory in fixed-size, non-contiguous blocks.
 
 ### Implementation Details
 
-1. **Physical Cache Layout**:
-   - The [PagedKVCache](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/paged_attention/paged_kv_cache.py#L8) pre-allocates a single contiguous memory tensor of shape:
-     `[n_layer, 2, num_blocks, n_head, kv_block_size, head_dim]`
-   - Each physical block holds a fixed number of tokens (`kv_block_size`).
+1. **Request & Logical Blocks**:
+   - **[Request](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/schemas/request_schema.py#L11)**: Tracks a generation request's input/generated token ids, its ordered list of [LogicalBlock](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/schemas/request_schema.py#L5) entries, and `num_computed_tokens` (how many tokens already have KV entries cached).
+   - **[build_logical_blocks()](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/utils/block.py#L33)**: Splits a request's prompt into fixed-size logical blocks during the prefill phase, computing a chained SHA-256 hash for every *full* block so it can participate in prefix caching.
+   - **[append_decode_token()](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/utils/block.py#L69)**: During decoding, appends each newly generated token to the last logical block, creating a new block once the previous one fills up and computing its hash at that point.
 
-2. **Block Management**:
-   - **[KVCacheBlock](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/paged_attention/kv_cache_manager.py#L5)**: Represents a physical memory block trackable by ID, usage reference count (`ref_cnt`), and cache hash signature.
-   - **[KVCacheManager](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/paged_attention/kv_cache_manager.py#L18)**: Manages allocation and eviction. It uses a **doubly-linked free list** representing a Least Recently Used (LRU) policy. When a request requires a block, the manager pops it from the head. When a block's reference count falls to 0, it is appended back to the tail of the free list.
-   - **Prefix Caching**: The manager maps cryptographic hash signatures of prompt prefixes to allocated blocks. If a new request shares a prefix, it achieves a cache hit, incrementing the block's `ref_cnt` and reusing the keys/values.
+2. **Block Allocation & Eviction**:
+   - **[KVCacheBlock](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/paged_attention/kv_cache_manager.py#L10)**: Represents a physical block, trackable by ID, usage reference count (`ref_cnt`), and cache hash signature.
+   - **[KVCacheManager](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/paged_attention/kv_cache_manager.py#L23)**: Manages allocation and eviction. It uses a **doubly-linked free list** representing a Least Recently Used (LRU) policy. When a request requires a block, the manager pops it from the head. When a block's reference count falls to 0, it is appended back to the tail of the free list. `allocate()` assigns physical blocks to all unassigned logical blocks of a request (prefill), while `allocate_last_block()` assigns a physical block to the newly created partial block during decode.
+   - **Prefix Caching**: The manager maps block hash signatures to allocated blocks in `cached_blocks`. If a new request's block hash already exists, it's a cache hit — the manager reuses the existing physical block and increments its `ref_cnt` instead of allocating a new one.
 
-3. **Logical vs. Physical Translation**:
-   - Sequences write logical token sequences. The logical sequence is divided into [LogicalBlock](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/schemas/request_schema.py#L5) definitions.
-   - Each logical block is mapped to a physical block inside the pre-allocated cache.
-   - During generation, [PagedKVCache.read()](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/paged_attention/paged_kv_cache.py#L69) gathers non-contiguous physical blocks from the pre-allocated tensor and yields concatenated sequences for the attention computation.
+3. **Physical Storage**:
+   - **[KVCacheTensor](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/paged_attention/kv_cache_tensor.py#L3)** pre-allocates a single contiguous tensor of shape `[n_layer, 2, num_blocks, n_head, kv_block_size, head_dim]`. `read_block()`/`write_block()` index into an individual layer's physical block by id and token offset.
+
+4. **Paged GPT-2**:
+   - **[GPT2 (paged)](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/models/gpt2_paged.py#L271)** mirrors the standard [GPT2](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/models/gpt2.py#L119) architecture, but its [CausalSelfAttention](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/models/gpt2_paged.py#L38) gathers past K/V from the `KVCacheTensor` via each request's logical→physical block mapping before attending, and writes newly computed K/V back into the same blocks.
+   - **[generate_with_cache()](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/models/gpt2_paged.py#L508)** drives prefill (build logical blocks → allocate → forward) and decode (append token → allocate last block → forward one token at a time) for a single `Request`, freeing its blocks back to the `KVCacheManager` once generation finishes.
+
+### Prefix Caching Benchmark
+
+[benchmark_prefix_caching.py](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/benchmark_prefix_caching.py) compares physical block usage between the standard and paged KV caches when N concurrent requests share a 64-token prefix with a 16-token unique suffix, against a control group of requests with no shared prefix:
+
+![Prefix Caching Benchmark](assests/prefix_caching_benchmark.png)
+
+Key observations:
+- With a shared prefix, paged attention deduplicates the common blocks via prefix-hash lookups, saving up to **75% of allocated blocks** at 16 concurrent requests (40 blocks vs. 160 for the standard cache).
+- With unique prefixes (control group), there's nothing to deduplicate, so paged and standard caches allocate the same number of blocks (0% savings).
 
 ---
 
@@ -157,6 +173,20 @@ Compare the latency of autoregressive generation with and without the KV Cache o
 
 ```bash
 python benchmark_kv_cache.py
+```
+
+Measure the block-level memory savings prefix caching gives concurrent requests that share a prompt:
+
+```bash
+python benchmark_prefix_caching.py
+```
+
+### 5. Running Tests
+
+Unit tests cover GPT-2 and the paged attention block allocator:
+
+```bash
+pytest
 ```
 
 ---
