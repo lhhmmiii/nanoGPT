@@ -1,99 +1,167 @@
 # nanoGPT
 
-A hands-on implementation of GPT-style models from first principles, designed for learning, experimentation, and practical fine-tuning. This project covers the full journey from tokenizer design and transformer internals to training and adaptation of GPT-2.
+A hands-on implementation of GPT-style models from first principles, designed for learning, experimentation, and practical fine-tuning. This project covers the full journey from custom tokenizer design and transformer internals to training and inference adaptation of GPT-2.
 
-## Why this project stands out
+---
 
-- Built GPT-style architectures from scratch, including core transformer components rather than relying only on high-level abstractions.
-- Implemented custom tokenizers to understand the preprocessing layer that powers modern language models.
-- Created a reproducible training pipeline for data preparation, model training, and checkpointing.
-- Recently completed a GPT-2 fine-tuning run and visualized the training loss curve as part of the experiment.
+## Key Features
 
-## Recent milestone: GPT-2 fine-tuning
+- **Models from Scratch**: Implemented a hierarchy of generative models including a simple [Bigram](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/models/bigram.py#L6), a basic [GPT1](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/models/gpt1.py#L9), and a full [GPT2](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/models/gpt2.py#L119) architecture.
+- **Custom Tokenizers**: Developed from-scratch tokenization strategies, including character-level and Byte Pair Encoding (BPE) systems.
+- **End-to-End Pipeline**: Created robust pipelines for data preparation, dataset class mapping, training loops, tensorboard logging, and checkpoints.
+- **KV Cache Optimizations**: Implemented KV cache management inside attention layers to significantly speed up autoregressive decoding.
+- **Paged Attention**: Added a memory management layer that partitions the KV cache into fixed-size blocks using a block allocator, minimizing fragmentation.
 
-I recently fine-tuned GPT-2 on the WikiText-103 dataset and monitored the learning curve to evaluate convergence. WikiText-103 contains approximately 109 million tokens. While relatively small for pretraining a language model from scratch, it is sufficient for fine-tuning. The training loss progression is shown below:
+---
+
+## Repository Structure
+
+```
+├── README.md                           # Project overview and documentation
+├── requirements.txt                    # Project dependencies
+├── prepare_data.py                     # Script to tokenize and save datasets
+├── dataset.py                          # Custom PyTorch Dataset wrapping binary token files
+├── train_gpt2.py                       # GPT-2 training and fine-tuning loop
+├── benchmark_kv_cache.py               # KV cache benchmark and plotting utility
+├── assests/                            # Visual assets (loss curves, benchmarks, diagrams)
+├── tokenization/                       # Custom tokenizer module
+│   ├── base.py                         # Abstract base class for tokenizers
+│   ├── character.py                    # Simple character-level tokenizer
+│   └── bpe.py                          # Custom Byte Pair Encoding (BPE) implementation
+├── models/                             # Model architectures
+│   ├── bigram.py                       # Baseline Bigram Language Model
+│   ├── gpt1.py                         # GPT-1 architecture (post-norm style)
+│   ├── gpt2.py                         # GPT-2 architecture (pre-norm, with KV caching)
+│   └── gpt2_paged.py                   # Paged Attention variant of GPT-2
+├── paged_attention/                    # Paged Attention memory subsystem
+│   ├── kv_cache_manager.py             # Physical block allocator & LRU manager
+│   └── paged_kv_cache.py               # Memory buffer read/write wrapper
+└── schemas/                            # Data transfer and structural models
+    └── request_schema.py               # Logical/Physical block and Request structures
+```
+
+---
+
+## Architectural Breakdown
+
+### 1. Custom Tokenization
+The [tokenization](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/tokenization) package implements the preprocessing layer:
+- **[BaseTokenizer](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/tokenization/base.py#L3)**: Defines a unified abstract interface for training, encoding, decoding, saving, and loading vocabularies.
+- **[CharacterTokenizer](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/tokenization/character.py#L5)**: Maps each character to a unique integer ID.
+- **[BPETokenizer](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/tokenization/bpe.py#L6)**: A custom implementation of Byte Pair Encoding. It encodes text as UTF-8 bytes and iteratively merges the most frequent pairs up to a configured vocabulary size.
+
+### 2. Model
+The [models](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/models) package houses the neural architectures:
+- **[Bigram](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/models/bigram.py#L6)**: A simple lookup model predicting the next token based only on the current token.
+- **[GPT1](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/models/gpt1.py#L9)**: Implementation of the original GPT paper featuring learned positional embeddings, multi-head attention, and post-layer normalization.
+- **[GPT2](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/models/gpt2.py#L119)**: The modern standard featuring pre-layer normalization, scaled residual initializations, optional bias flags, and support for loading HuggingFace OpenAI weights (`gpt2`, `gpt2-medium`, `gpt2-large`, `gpt2-xl`).
+
+---
+
+## GPT-2 Fine-Tuning
+
+A fine-tuning run was executed on the WikiText-103 dataset, which contains ~109 million tokens. The model was fine-tuned to study convergence behavior.
 
 ![Fine-tuning loss curve](assests/fine_tuning_gpt2.png)
 
-This experiment highlights:
-- a stable optimization trajectory during training,
-- a practical end-to-end workflow for adapting a pretrained model,
-- and a strong foundation for further experiments with domain-specific text generation.
+### Experiment Insights:
+- Stable optimization trajectory with a steady cross-entropy loss reduction.
+- Practical end-to-end workflow validating checkpoint loading via the `load_checkpoint` utility.
+- Solid basis for domain-specific downstream tasks.
 
-## Performance Optimization: KV Cache
+---
 
-To improve inference latency, I implemented Key-Value (KV) caching for autoregressive token generation. By caching keys and values from previous tokens in the `CausalSelfAttention` layers, we avoid redundant calculations for past tokens. In subsequent generation steps, we feed only the newly generated token into the model instead of the entire context window.
+## Inference Optimizations
 
-### Why cache K and V — but not Q?
- 
-A natural question when implementing KV cache: why do we only store Key and Value tensors, and not Query?
- 
-Suppose Q and K both have shape `(seq_len, embed_size)`, e.g. `(3, 5)`. The attention score is computed as `Q · K^T`.
- 
+Autoregressive decoding generates tokens sequentially. Processing the entire sequence at each step is computationally expensive ($O(N^2)$ attention computations).
+
+### 1. KV Caching
+We optimize this by caching the Key and Value states of previous tokens in the [CausalSelfAttention](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/models/gpt2.py#L30) layers. During each generation step, only the new token is fed into the model.
+
+#### Why cache K and V — but not Q?
+Suppose $Q$ and $K$ both have shape `(seq_len, embed_size)`. The attention score is computed as $Q \cdot K^T$.
+
 ![Why cache K and V, not Q](assests/kv_cache_explainer.png)
- 
-Consider the step where we generate the 3rd token(new token):
-- To compute the attention row for the new token (`A3`), we only need `Q3` multiplied against **all** of `K1^T, K2^T, K3^T`.
-- `Q1` and `Q2` were each used exactly once, at the steps where `A1` and `A2` were computed — they are never reused afterward.
-- In contrast, `K1, K2` (and `V1, V2`) get reused again and again at every subsequent generation step, since each new token's query must attend back over **all** past keys/values.
 
-**Takeaway:** since past Query vectors are never reused, there's no benefit to caching Q. But past Key and Value vectors are reused at every future step, so caching them eliminates redundant recomputation — this is exactly why it's called a "KV cache" and not a "QKV cache."
+Consider the step where we generate the 3rd token:
+- To compute the attention scores for the new token ($A_3$), we only need $Q_3$ multiplied against all past keys $K_1^T, K_2^T, K_3^T$.
+- $Q_1$ and $Q_2$ are never reused after their initial generation steps.
+- Conversely, $K_1, K_2$ (and $V_1, V_2$) are reused at every future step, since each new query must attend to all past tokens.
+- Therefore, caching past queries yields no performance benefit. Caching past keys and values eliminates redundant computations.
 
-### Benchmark Results
-
-A generation latency benchmark was run on the CPU (prompt length of 32 tokens) comparing generation with and without the KV cache across different sequence lengths:
+#### KV Cache Speedup Benchmark
+A benchmark was run comparing generation performance with and without KV caching (configured with a prompt length of 32 tokens on CPU):
 
 ![KV Cache Speedup](assests/kv_cache_benchmark.png)
 
-This benchmark demonstrates:
-- A significant reduction in generation time, scaling from a **2x speedup** for short sequences to over **5.7x speedup** for 256 tokens.
-- Constant time complexity per token for attention calculation with cache, compared to quadratic growth without cache.
+Key observations:
+- A significant reduction in generation latency, scaling from a **2x speedup** for short sequences to over **5.7x speedup** for 256 tokens.
+- Attention computation achieves near constant-time complexity per token with the cache, avoiding the quadratic scaling without it.
 
-## What is implemented
+---
 
-- Custom tokenizers: character, word, and BPE-style tokenization logic.
-- GPT-1 implementation: attention, multi-head attention, decoder blocks, and the full model stack.
-- GPT-2 implementation: pre-norm architecture, fused QKV-style projection logic, optimized batched attention, and **efficient Key-Value (KV) cache generation**.
-- Training utilities: data preparation, batching, training entrypoints, and checkpoint support.
+## Paged Attention
 
-## Repository structure
+For longer sequences or concurrent requests, pre-allocating contiguous KV cache buffers leads to severe memory fragmentation (both internal and external) and over-allocation (reserving space for max sequence lengths).
 
-- tokenizers/: tokenizer implementations and helpers
-- models/: bigram, gpt1, and gpt2 implementations
-- data/: example datasets such as wikitext-103
-- Top-level scripts: prepare_data.py, dataset.py, and train_gpt2.py
+Inspired by virtual memory paging in operating systems, this project implements a clean Paged Attention framework under the [paged_attention](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/paged_attention) module to manage KV cache tensors non-contiguously.
 
-## Quick start
+### Implementation Details
 
-1. Install dependencies:
+1. **Physical Cache Layout**:
+   - The [PagedKVCache](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/paged_attention/paged_kv_cache.py#L8) pre-allocates a single contiguous memory tensor of shape:
+     `[n_layer, 2, num_blocks, n_head, kv_block_size, head_dim]`
+   - Each physical block holds a fixed number of tokens (`kv_block_size`).
+
+2. **Block Management**:
+   - **[KVCacheBlock](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/paged_attention/kv_cache_manager.py#L5)**: Represents a physical memory block trackable by ID, usage reference count (`ref_cnt`), and cache hash signature.
+   - **[KVCacheManager](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/paged_attention/kv_cache_manager.py#L18)**: Manages allocation and eviction. It uses a **doubly-linked free list** representing a Least Recently Used (LRU) policy. When a request requires a block, the manager pops it from the head. When a block's reference count falls to 0, it is appended back to the tail of the free list.
+   - **Prefix Caching**: The manager maps cryptographic hash signatures of prompt prefixes to allocated blocks. If a new request shares a prefix, it achieves a cache hit, incrementing the block's `ref_cnt` and reusing the keys/values.
+
+3. **Logical vs. Physical Translation**:
+   - Sequences write logical token sequences. The logical sequence is divided into [LogicalBlock](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/schemas/request_schema.py#L5) definitions.
+   - Each logical block is mapped to a physical block inside the pre-allocated cache.
+   - During generation, [PagedKVCache.read()](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/paged_attention/paged_kv_cache.py#L69) gathers non-contiguous physical blocks from the pre-allocated tensor and yields concatenated sequences for the attention computation.
+
+---
+
+## Quick Start
+
+### 1. Setup Environment
+
+Install dependencies listed in [requirements.txt](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/requirements.txt):
 
 ```bash
 pip install -r requirements.txt
 ```
 
-2. Prepare data (example using wikitext):
+### 2. Dataset Preparation
+
+Download and extract the WikiText-103 dataset, placing the text files in `data/wikitext-103/`. Then tokenise the corpus into binary files using Tiktoken's GPT-2 BPE configuration:
 
 ```bash
 python prepare_data.py
 ```
 
-3. Train a small experiment:
+### 3. Model Training
+
+Run the training or fine-tuning script. The hyperparameters, network setup, and logging options are fully configurable inside [train_gpt2.py](file:///Users/lhhmmiii/Documents/PersonalProjects/nanoGPT/train_gpt2.py):
 
 ```bash
 python train_gpt2.py
 ```
 
-Adjust the hyperparameters in train_gpt2.py to match your hardware, dataset size, or desired model scale.
+### 4. Running Benchmarks
 
-## Notes
+Compare the latency of autoregressive generation with and without the KV Cache optimization:
 
-- This project is primarily educational and experimental rather than production-ready.
-- If you want, I can also expand this README with a more detailed fine-tuning guide, sample generations, or a benchmark section.
+```bash
+python benchmark_kv_cache.py
+```
+
+---
 
 ## Sources / Inspiration
 
-This project was inspired by the excellent educational tutorials by Andrej Karpathy on building language models from scratch.
-
-- Let's reproduce GPT-2 (124M): https://www.youtube.com/watch?v=l8pRSuU81PU
-- Let's build the GPT Tokenizer: https://www.youtube.com/watch?v=zduSFxRajkE
-
+- **Andrej Karpathy**: *Let's reproduce GPT-2 (124M)* ([YouTube Lecture](https://www.youtube.com/watch?v=l8pRSuU81PU)) and *Let's build the GPT Tokenizer* ([YouTube Lecture](https://www.youtube.com/watch?v=zduSFxRajkE))
+- **vLLM Team**: *PagedAttention* research paper ([arXiv:2309.06180](https://arxiv.org/pdf/2309.06180))
