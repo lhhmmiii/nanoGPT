@@ -175,11 +175,7 @@ Compare the latency of autoregressive generation with and without the KV Cache o
 python benchmark_kv_cache.py
 ```
 
-Measure the block-level memory savings prefix caching gives concurrent requests that share a prompt:
-
-```bash
-python benchmark_prefix_caching.py
-```
+`benchmark_prefix_caching.py` measures the block-level memory savings prefix caching gives concurrent requests sharing a prompt, but it currently depends on a paged GPT-2 model (`models/gpt2_paged.py`) that hasn't landed on `main` yet, so it isn't runnable as-is.
 
 ### 5. Running Tests
 
