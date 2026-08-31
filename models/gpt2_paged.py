@@ -487,6 +487,8 @@ class GPT2(nn.Module):
         the sequence max_new_tokens times, feeding the predictions back into the model each time.
         Most likely you'll want to make sure to be in model.eval() mode of operation for this.
         """
+        eos_token_id = 50256 
+
         for _ in range(max_new_tokens):
             idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
             logits, _ = self(idx_cond)
@@ -501,6 +503,12 @@ class GPT2(nn.Module):
             # sample from the distribution
             idx_next = torch.multinomial(probs, num_samples=1)
             idx = torch.cat((idx, idx_next), dim=1)
+
+            # Stop if all sequences generated EOS
+            if eos_token_id is not None:
+                if (idx_next == eos_token_id).all():
+                    break
+
 
         return idx
 
@@ -518,6 +526,7 @@ class GPT2(nn.Module):
 
         """
         device = next(self.parameters()).device
+        eos_token_id = 50256
 
         # Truncate input to block_size
         input_ids_list = request.input_ids[-self.config.block_size:]
@@ -548,11 +557,16 @@ class GPT2(nn.Module):
             probs = F.softmax(logits, dim=-1)
             idx_next = torch.multinomial(probs, num_samples=1)  # (1, 1)
 
+            token_id = idx_next.item()
+
+            # Stop if EOS token is generated — do NOT append EOS to output or run forward
+            if token_id == eos_token_id:
+                break
+
             # Append to output sequence
             idx = torch.cat((idx, idx_next), dim=1)
 
             # Update logical blocks with the new token
-            token_id = idx_next.item()
             request.generated_ids.append(token_id)
             request = append_decode_token(request, token_id, kv_cache_block_size=KV_BLOCK_SIZE)
 

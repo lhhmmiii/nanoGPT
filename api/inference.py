@@ -152,6 +152,8 @@ class InferenceEngine:
         token_queue: asyncio.Queue[int | None] = asyncio.Queue()
         loop = asyncio.get_event_loop()
 
+        eos_token_id = 50256
+
         def _worker():
             """Runs in a background thread; puts token IDs onto the queue."""
             try:
@@ -184,6 +186,11 @@ class InferenceEngine:
                         idx_next = torch.multinomial(probs, num_samples=1)  # (1, 1)
 
                         token_id: int = idx_next.item()
+
+                        # Stop if EOS token — do not stream it or run another forward pass
+                        if token_id == eos_token_id:
+                            break
+
                         req.generated_ids.append(token_id)
                         req = append_decode_token(req, token_id, kv_cache_block_size=8)
                         kv.allocate_last_block(req)
@@ -196,6 +203,7 @@ class InferenceEngine:
                     kv.free(req)
             except Exception as exc:
                 print(f"[InferenceEngine._worker] Error: {exc}")
+                kv.free(req)
             finally:
                 loop.call_soon_threadsafe(token_queue.put_nowait, None)  # sentinel
 
