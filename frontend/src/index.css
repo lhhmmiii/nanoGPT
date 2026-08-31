@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #4a4a4a;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #666;
+}
+
+/* Smooth typing cursor for streaming */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+.typing-cursor::after {
+  content: '▋';
+  display: inline-block;
+  animation: blink 1s step-end infinite;
+  margin-left: 1px;
+  color: #9ca3af;
+}
+
+/* Markdown styles inside messages */
+.prose-chat p   { margin-bottom: 0.75rem; }
+.prose-chat pre { background: #1e1e1e; border-radius: 8px; padding: 1rem; overflow-x: auto; }
+.prose-chat code { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.875rem; }
+.prose-chat ul, .prose-chat ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+.prose-chat li { margin-bottom: 0.25rem; }
+
+/* Light mode overrides */
+.light .prose-chat pre { background: #f3f4f6; }
