@@ -2,9 +2,15 @@
 .venv/
 venv/
 
-# Python cache
+# Python caches and artifacts
 __pycache__/
 *.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+*.egg-info/
+*.log
 
 # Environment variables
 .env
@@ -15,8 +21,17 @@ __pycache__/
 # VS Code
 .vscode/
 
+# Node / frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
 # Data
 data/
 vocabs/
 checkpoints/
 runs/
+
+# Common generated output
+artifacts/
+tmp/
