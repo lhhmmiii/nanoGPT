@@ -8,8 +8,8 @@ export default function MessageInput({ onSend, onStop, isStreaming }) {
   const [text, setText] = useState('')
   const [showSettings, setShowSettings] = useState(false)
   const [params, setParams] = useState({
-    maxNewTokens: 200,
-    temperature: 1.0,
+    maxNewTokens: 100,
+    temperature: 0.7,
     topK: 50,
   })
   const textareaRef = useRef(null)

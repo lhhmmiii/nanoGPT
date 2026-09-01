@@ -17,18 +17,13 @@ export function useChat() {
   const [error, setError] = useState(null)
   const abortRef = useRef(null)
 
-  /** Build the full prompt from conversation history */
+  /** Build the full prompt (sending prompt directly for base text completion) */
   const buildPrompt = (history, userText) => {
-    const lines = history.map((m) =>
-      m.role === 'user' ? `User: ${m.content}` : `Assistant: ${m.content}`
-    )
-    lines.push(`User: ${userText}`)
-    lines.push('Assistant:')
-    return lines.join('\n')
+    return userText
   }
 
   const sendMessage = useCallback(
-    (text, { maxNewTokens = 200, temperature = 1.0, topK = 50 } = {}) => {
+    (text, { maxNewTokens = 100, temperature = 0.7, topK = 50 } = {}) => {
       if (!text.trim() || isStreaming) return
 
       // Append user message
