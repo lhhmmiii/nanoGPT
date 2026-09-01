@@ -64,48 +64,6 @@
 
 ---
 
-## 🏗️ System Architecture & Data Flow
-
-```mermaid
-flowchart TD
-    subgraph Client["🖥️ Frontend (React + Vite + Tailwind)"]
-        UI["Chat Interface & Controls"]
-        SSE_Client["EventSource / SSE Stream Consumer"]
-        UI -->|Send Prompt & Parameters| SSE_Client
-    end
-
-    subgraph API["⚡ Backend (FastAPI Server)"]
-        Router["/api/chat/stream & /api/chat"]
-        Engine["InferenceEngine (Singleton)"]
-        SSE_Client -->|HTTP GET / POST| Router
-        Router --> Engine
-    end
-
-    subgraph Memory["🧠 Paged Attention Memory Subsystem"]
-        ReqSchema["Request & LogicalBlock Builder\n(Chained SHA-256 Hashing)"]
-        Manager["KVCacheManager\n(LRU Doubly-Linked Free List + Prefix Hash Table)"]
-        Tensor["KVCacheTensor\n[n_layer, 2, num_blocks, n_head, block_size, head_dim]"]
-        
-        Engine --> ReqSchema
-        ReqSchema -->|Logical Blocks| Manager
-        Manager -->|Physical Block Mapping| Tensor
-    end
-
-    subgraph Model["🤖 Neural Model (GPT-2 Paged)"]
-        PagedTransformer["Paged GPT-2 Transformer"]
-        PagedAttention["CausalSelfAttention (Paged)\n- Gather Past KV from KVCacheTensor\n- Scaled Dot-Product Attention\n- Scatter New KV to Block"]
-        
-        Engine --> PagedTransformer
-        PagedTransformer --> PagedAttention
-        PagedAttention <-->|Read / Write KV Blocks| Tensor
-    end
-
-    Engine -->|Token-by-Token SSE Stream| Router
-    Router -->|data: {'token': '...'}| SSE_Client
-```
-
----
-
 ## 📂 Repository Structure
 
 ```
@@ -201,7 +159,7 @@ The project includes an end-to-end training pipeline targeting large-scale corpo
 
 ## ⚡ Inference Optimizations
 
-Autoregressive decoding generates tokens sequentially ($x_{t+1} \sim P(x_{t+1} \mid x_1, \dots, x_t)$). Without optimization, every step recomputes attention across the entire historical sequence, resulting in quadratic $O(N^2)$ computational complexity.
+Autoregressive decoding generates tokens sequentially ($$x_{t+1} \sim P(x_{t+1} \mid x_1, \dots, x_t)$$). Without optimization, every step recomputes attention across the entire historical sequence, resulting in quadratic $O(N^2)$ computational complexity.
 
 ### 1. KV Caching
 
