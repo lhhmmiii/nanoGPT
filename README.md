@@ -159,7 +159,7 @@ The project includes an end-to-end training pipeline targeting large-scale corpo
 
 ## ⚡ Inference Optimizations
 
-Autoregressive decoding generates tokens sequentially ($$x_{t+1} \sim P(x_{t+1} \mid x_1, \dots, x_t)$$). Without optimization, every step recomputes attention across the entire historical sequence, resulting in quadratic $O(N^2)$ computational complexity.
+Autoregressive decoding generates tokens sequentially $x_{t+1} \sim P(x_{t+1} \mid x_1, \dots, x_t)$. Without optimization, every step recomputes attention across the entire historical sequence, resulting in quadratic $O(N^2)$ computational complexity.
 
 ### 1. KV Caching
 
@@ -234,7 +234,7 @@ graph LR
 ```
 
 1. **[`LogicalBlock`](schemas/request_schema.py)**: Tracks token chunks and computes a **chained SHA-256 hash**:
-   $$\text{Hash}_i = \text{SHA256}(\text{Hash}_{i-1} \,\|\, \text{tokens}_i)$$
+   $\text{Hash}_i = \text{SHA256}(\text{Hash}_{i-1} \,\|\, \text{tokens}_i)$
 2. **[`KVCacheManager`](paged_attention/kv_cache_manager.py)**:
    - **Doubly-Linked Free List**: Implements an LRU (Least Recently Used) physical block eviction/allocation policy.
    - **Prefix Cache Hash Map**: Maps block hashes to active physical blocks. When a new request shares a prompt prefix with an existing block, it increments `ref_cnt` and shares the physical block.
